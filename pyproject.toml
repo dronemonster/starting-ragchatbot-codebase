@@ -24,3 +24,10 @@ dev = [
 [tool.black]
 line-length = 88
 target-version = ["py313"]
+
+[tool.pytest.ini_options]
+testpaths = ["backend/tests"]
+addopts = "-v --tb=short --strict-markers"
+markers = [
+    "live: tests that call the real Anthropic API (require ANTHROPIC_API_KEY in .env)",
+]
