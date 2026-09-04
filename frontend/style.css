@@ -241,8 +241,63 @@ header h1 {
 }
 
 .sources-content {
-    padding: 0 0.5rem 0.25rem 1.5rem;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    padding: 0.25rem 0.5rem 0.25rem;
+    margin: 0;
+}
+
+.source-item {
+    display: flex;
+}
+
+.source-link,
+.source-link-disabled {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    background: var(--background);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
     color: var(--text-secondary);
+    font-size: 0.8rem;
+    line-height: 1.4;
+    text-decoration: none;
+}
+
+.source-text {
+    flex: 1;
+}
+
+.source-icon {
+    flex-shrink: 0;
+    width: 12px;
+    height: 12px;
+    opacity: 0.5;
+}
+
+.source-link {
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.source-link:hover {
+    color: var(--text-primary);
+    background: var(--surface-hover);
+    border-color: var(--primary-color);
+}
+
+.source-link:hover .source-icon {
+    opacity: 0.9;
+}
+
+.source-link-disabled {
+    cursor: default;
+    opacity: 0.75;
 }
 
 /* Markdown formatting styles */
@@ -447,7 +502,8 @@ header h1 {
 
 /* Sidebar Headers */
 .stats-header,
-.suggested-header {
+.suggested-header,
+.new-chat-button {
     font-size: 0.875rem;
     font-weight: 600;
     color: var(--text-secondary);
@@ -463,13 +519,21 @@ header h1 {
 }
 
 .stats-header:focus,
-.suggested-header:focus {
+.suggested-header:focus,
+.new-chat-button:focus {
     color: var(--primary-color);
 }
 
 .stats-header:hover,
-.suggested-header:hover {
+.suggested-header:hover,
+.new-chat-button:hover {
     color: var(--primary-color);
+}
+
+.new-chat-button {
+    display: block;
+    width: 100%;
+    text-align: left;
 }
 
 .stats-header::-webkit-details-marker,

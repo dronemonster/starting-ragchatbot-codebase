@@ -5,7 +5,7 @@ const API_URL = '/api';
 let currentSessionId = null;
 
 // DOM elements
-let chatMessages, chatInput, sendButton, totalCourses, courseTitles;
+let chatMessages, chatInput, sendButton, totalCourses, courseTitles, newChatButton;
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
@@ -15,7 +15,8 @@ document.addEventListener('DOMContentLoaded', () => {
     sendButton = document.getElementById('sendButton');
     totalCourses = document.getElementById('totalCourses');
     courseTitles = document.getElementById('courseTitles');
-    
+    newChatButton = document.getElementById('newChatButton');
+
     setupEventListeners();
     createNewSession();
     loadCourseStats();
@@ -28,8 +29,10 @@ function setupEventListeners() {
     chatInput.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') sendMessage();
     });
-    
-    
+
+    // New chat
+    newChatButton.addEventListener('click', createNewSession);
+
     // Suggested questions
     document.querySelectorAll('.suggested-item').forEach(button => {
         button.addEventListener('click', (e) => {
@@ -122,10 +125,23 @@ function addMessage(content, type, sources = null, isWelcome = false) {
     let html = `<div class="message-content">${displayContent}</div>`;
     
     if (sources && sources.length > 0) {
+        const linkIcon = `<svg class="source-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7"></path><path d="M7 7h10v10"></path></svg>`;
+
+        const sourcesHtml = sources
+            .map(source => {
+                const text = `<span class="source-text">${escapeHtml(source.text)}</span>`;
+                const inner = source.link ? `${text}${linkIcon}` : text;
+                const tag = source.link
+                    ? `<a href="${escapeHtml(source.link)}" target="_blank" rel="noopener noreferrer" class="source-link">${inner}</a>`
+                    : `<span class="source-link source-link-disabled">${inner}</span>`;
+                return `<li class="source-item">${tag}</li>`;
+            })
+            .join('');
+
         html += `
             <details class="sources-collapsible">
-                <summary class="sources-header">Sources</summary>
-                <div class="sources-content">${sources.join(', ')}</div>
+                <summary class="sources-header">Sources (${sources.length})</summary>
+                <ul class="sources-content">${sourcesHtml}</ul>
             </details>
         `;
     }
@@ -147,9 +163,19 @@ function escapeHtml(text) {
 // Removed removeMessage function - no longer needed since we handle loading differently
 
 async function createNewSession() {
+    const previousSessionId = currentSessionId;
+
     currentSessionId = null;
     chatMessages.innerHTML = '';
     addMessage('Welcome to the Course Materials Assistant! I can help you with questions about courses, lessons and specific content. What would you like to know?', 'assistant', null, true);
+
+    if (previousSessionId) {
+        try {
+            await fetch(`${API_URL}/session/${previousSessionId}`, { method: 'DELETE' });
+        } catch (error) {
+            console.error('Error clearing previous session:', error);
+        }
+    }
 }
 
 // Load course statistics

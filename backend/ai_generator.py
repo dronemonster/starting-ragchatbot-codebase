@@ -5,17 +5,23 @@ class AIGenerator:
     """Handles interactions with Anthropic's Claude API for generating responses"""
     
     # Static system prompt to avoid rebuilding on each call
-    SYSTEM_PROMPT = """ You are an AI assistant specialized in course materials and educational content with access to a comprehensive search tool for course information.
+    SYSTEM_PROMPT = """ You are an AI assistant specialized in course materials and educational content with access to two tools for course information.
 
-Search Tool Usage:
-- Use the search tool **only** for questions about specific course content or detailed educational materials
-- **One search per query maximum**
-- Synthesize search results into accurate, fact-based responses
-- If search yields no results, state this clearly without offering alternatives
+Tool Usage:
+- `search_course_content`: use for questions about specific course content, concepts, or detailed educational materials within lessons
+- `get_course_outline`: use for questions about a course's structure, syllabus, or lesson listing (e.g. "what lessons are in X", "give me the outline of Y")
+- **One tool call per query maximum**
+- Synthesize tool results into accurate, fact-based responses
+- If a tool yields no results, state this clearly without offering alternatives
+- If the results are non-empty but don't contain enough information to answer well (e.g. only tangential or transitional text), say so plainly and share whatever relevant information is available - always produce a text answer, never an empty response
+
+Outline Responses:
+- When answering an outline/structure question, always include the course title, the course link, and the full lesson list
+- For each lesson, include both its number and its title
 
 Response Protocol:
 - **General knowledge questions**: Answer using existing knowledge without searching
-- **Course-specific questions**: Search first, then answer
+- **Course-specific questions**: Use the appropriate tool first, then answer
 - **No meta-commentary**:
  - Provide direct answers only — no reasoning process, search explanations, or question-type analysis
  - Do not mention "based on the search results"
@@ -36,8 +42,7 @@ Provide only the direct answer to what was asked.
         # Pre-build base API parameters
         self.base_params = {
             "model": self.model,
-            "temperature": 0,
-            "max_tokens": 800
+            "max_tokens": 2048
         }
     
     def generate_response(self, query: str,
@@ -78,13 +83,16 @@ Provide only the direct answer to what was asked.
         
         # Get response from Claude
         response = self.client.messages.create(**api_params)
-        
+
         # Handle tool execution if needed
         if response.stop_reason == "tool_use" and tool_manager:
             return self._handle_tool_execution(response, api_params, tool_manager)
-        
+
         # Return direct response
-        return response.content[0].text
+        text = self._extract_text(response)
+        if text:
+            return text
+        return self._retry_for_text(api_params)
     
     def _handle_tool_execution(self, initial_response, base_params: Dict[str, Any], tool_manager):
         """
@@ -123,13 +131,43 @@ Provide only the direct answer to what was asked.
         if tool_results:
             messages.append({"role": "user", "content": tool_results})
         
-        # Prepare final API call without tools
+        # Prepare final API call without tools. Nudge explicitly against
+        # searching again - without it, the model can decide it wants another
+        # search, find none available, and stop with no text at all.
         final_params = {
             **self.base_params,
             "messages": messages,
-            "system": base_params["system"]
+            "system": base_params["system"] + "\n\nYou have already searched and have the results above. Do not search again - answer the question now using only that information."
         }
         
         # Get final response
         final_response = self.client.messages.create(**final_params)
-        return final_response.content[0].text
+        text = self._extract_text(final_response)
+        if text:
+            return text
+        return self._retry_for_text(final_params)
+
+    def _retry_for_text(self, params: Dict[str, Any], retries: int = 4) -> str:
+        """Retry a completed-but-empty response.
+
+        Current models occasionally end a turn with no text block at all
+        (empty completion) - a retry with the same params usually succeeds.
+        """
+        for _ in range(retries):
+            response = self.client.messages.create(**params)
+            text = self._extract_text(response)
+            if text:
+                return text
+        return "I wasn't able to generate an answer from the search results. Please try rephrasing your question."
+
+    def _extract_text(self, response) -> Optional[str]:
+        """Extract the answer text from a response's content blocks.
+
+        Current models may emit non-text blocks (e.g. ThinkingBlock) before
+        the text block, so content[0] cannot be assumed to be the answer.
+        Returns None if no non-empty text block is present.
+        """
+        for block in response.content:
+            if block.type == "text" and block.text:
+                return block.text
+        return None
