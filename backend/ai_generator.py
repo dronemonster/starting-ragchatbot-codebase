@@ -10,7 +10,8 @@ class AIGenerator:
 Tool Usage:
 - `search_course_content`: use for questions about specific course content, concepts, or detailed educational materials within lessons
 - `get_course_outline`: use for questions about a course's structure, syllabus, or lesson listing (e.g. "what lessons are in X", "give me the outline of Y")
-- **One tool call per query maximum**
+- **You may use tools across up to 2 sequential rounds per query.** After seeing a tool's results, decide whether you already have enough information to answer, or whether one more tool call is needed.
+- Use a second round only when it depends on what the first round returned - e.g. call `get_course_outline` to find a lesson's exact title, then call `search_course_content` with that title; or compare content pulled from two different searches. If the first round's results already answer the question, respond immediately rather than calling a tool again.
 - Synthesize tool results into accurate, fact-based responses
 - If a tool yields no results, state this clearly without offering alternatives
 - If the results are non-empty but don't contain enough information to answer well (e.g. only tangential or transitional text), say so plainly and share whatever relevant information is available - always produce a text answer, never an empty response
@@ -35,6 +36,10 @@ All responses must be:
 Provide only the direct answer to what was asked.
 """
     
+    # Maximum number of sequential tool-calling rounds Claude may use per query.
+    # A round = one API call with tools attached that comes back as tool_use.
+    MAX_TOOL_ROUNDS = 2
+
     def __init__(self, api_key: str, model: str):
         self.client = anthropic.Anthropic(api_key=api_key)
         self.model = model
@@ -65,82 +70,117 @@ Provide only the direct answer to what was asked.
         # Build system content efficiently - avoid string ops when possible
         system_content = (
             f"{self.SYSTEM_PROMPT}\n\nPrevious conversation:\n{conversation_history}"
-            if conversation_history 
+            if conversation_history
             else self.SYSTEM_PROMPT
         )
-        
-        # Prepare API call parameters efficiently
-        api_params = {
-            **self.base_params,
-            "messages": [{"role": "user", "content": query}],
-            "system": system_content
-        }
-        
-        # Add tools if available
+
+        messages = [{"role": "user", "content": query}]
+
+        if tools and tool_manager:
+            return self._run_tool_loop(messages, system_content, tools, tool_manager)
+
+        # No tools to execute (either none offered, or no manager to run them) -
+        # a single call, exactly as before.
+        api_params = {**self.base_params, "messages": messages, "system": system_content}
         if tools:
             api_params["tools"] = tools
             api_params["tool_choice"] = {"type": "auto"}
-        
-        # Get response from Claude
+
         response = self.client.messages.create(**api_params)
-
-        # Handle tool execution if needed
-        if response.stop_reason == "tool_use" and tool_manager:
-            return self._handle_tool_execution(response, api_params, tool_manager)
-
-        # Return direct response
         text = self._extract_text(response)
         if text:
             return text
         return self._retry_for_text(api_params)
-    
-    def _handle_tool_execution(self, initial_response, base_params: Dict[str, Any], tool_manager):
+
+    def _run_tool_loop(self, messages: List[Dict[str, Any]], system_content: str,
+                        tools: List, tool_manager) -> str:
         """
-        Handle execution of tool calls and get follow-up response.
-        
-        Args:
-            initial_response: The response containing tool use requests
-            base_params: Base API parameters
-            tool_manager: Manager to execute tools
-            
+        Run up to MAX_TOOL_ROUNDS sequential tool-calling rounds, then force a
+        final answer. Each round is a full API call with tools attached, so
+        Claude can reason about one round's results before deciding whether it
+        needs another tool call.
+
         Returns:
-            Final response text after tool execution
+            Final response text after all tool rounds.
         """
-        # Start with existing messages
-        messages = base_params["messages"].copy()
-        
-        # Add AI's tool use response
-        messages.append({"role": "assistant", "content": initial_response.content})
-        
-        # Execute all tool calls and collect results
+        had_error = False
+
+        for _ in range(self.MAX_TOOL_ROUNDS):
+            api_params = {
+                **self.base_params,
+                "messages": messages,
+                "system": system_content,
+                "tools": tools,
+                "tool_choice": {"type": "auto"}
+            }
+            response = self.client.messages.create(**api_params)
+
+            if response.stop_reason != "tool_use":
+                text = self._extract_text(response)
+                if text:
+                    return text
+                return self._retry_for_text(api_params)
+
+            tool_results, had_error = self._execute_tool_round(response, tool_manager)
+            messages.append({"role": "assistant", "content": response.content})
+            messages.append({"role": "user", "content": tool_results})
+
+            if had_error:
+                break
+
+        return self._finalize_without_tools(messages, system_content, had_error)
+
+    def _execute_tool_round(self, response, tool_manager) -> tuple:
+        """
+        Execute every tool_use block in one response (handles parallel tool
+        calls within a single round).
+
+        Returns:
+            Tuple of (tool_result blocks for all calls in this round, whether any call failed)
+        """
         tool_results = []
-        for content_block in initial_response.content:
-            if content_block.type == "tool_use":
-                tool_result = tool_manager.execute_tool(
-                    content_block.name, 
-                    **content_block.input
-                )
-                
-                tool_results.append({
+        had_error = False
+
+        for content_block in response.content:
+            if content_block.type != "tool_use":
+                continue
+
+            try:
+                result = tool_manager.execute_tool(content_block.name, **content_block.input)
+                tool_result = {"type": "tool_result", "tool_use_id": content_block.id, "content": result}
+            except Exception as exc:
+                had_error = True
+                tool_result = {
                     "type": "tool_result",
                     "tool_use_id": content_block.id,
-                    "content": tool_result
-                })
-        
-        # Add tool results as single message
-        if tool_results:
-            messages.append({"role": "user", "content": tool_results})
-        
-        # Prepare final API call without tools. Nudge explicitly against
-        # searching again - without it, the model can decide it wants another
-        # search, find none available, and stop with no text at all.
+                    "content": f"Tool '{content_block.name}' failed: {exc}",
+                    "is_error": True
+                }
+
+            tool_results.append(tool_result)
+
+        return tool_results, had_error
+
+    def _finalize_without_tools(self, messages: List[Dict[str, Any]], system_content: str,
+                                 had_error: bool) -> str:
+        """
+        Make the mandatory closing API call with tools omitted, so Claude must
+        answer using only what's already been gathered instead of requesting
+        another tool call it can't make.
+        """
+        if had_error:
+            nudge = ("\n\nA tool call above returned an error. Do not attempt further tool calls. "
+                      "Answer using whatever information is available and plainly note what couldn't be retrieved.")
+        else:
+            nudge = ("\n\nYou have used the available tool-calling rounds. Do not call any more tools - "
+                      "answer the question now using the information already gathered.")
+
         final_params = {
             **self.base_params,
             "messages": messages,
-            "system": base_params["system"] + "\n\nYou have already searched and have the results above. Do not search again - answer the question now using only that information."
+            "system": system_content + nudge
         }
-        
-        # Get final response
+
         final_response = self.client.messages.create(**final_params)
         text = self._extract_text(final_response)
         if text:
