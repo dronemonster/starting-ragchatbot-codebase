@@ -19,3 +19,10 @@ dev = [
     "pytest>=9.1.1",
     "pytest-mock>=3.15.1",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["backend/tests"]
+addopts = "-v --tb=short --strict-markers"
+markers = [
+    "live: tests that call the real Anthropic API (require ANTHROPIC_API_KEY in .env)",
+]

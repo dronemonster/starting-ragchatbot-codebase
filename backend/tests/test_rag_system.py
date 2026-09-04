@@ -95,6 +95,7 @@ class TestRAGSystemQueryOrchestration:
             rag.query("What is MCP?")
 
 
+@pytest.mark.live
 @pytest.mark.skipif(not os.getenv("ANTHROPIC_API_KEY"), reason="requires a real ANTHROPIC_API_KEY")
 class TestRAGSystemContentQueryLive:
     """End-to-end check against the real Anthropic API and the real, already-ingested
