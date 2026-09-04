@@ -1,4 +1,5 @@
 """Tests for how RAGSystem.query() handles content-related questions."""
+
 import os
 from unittest.mock import MagicMock
 
@@ -25,7 +26,9 @@ def make_rag_system_with_mocks():
 class TestRAGSystemQueryOrchestration:
     def test_content_query_returns_answer_and_sources(self):
         rag = make_rag_system_with_mocks()
-        rag.ai_generator.generate_response.return_value = "MCP is the Model Context Protocol."
+        rag.ai_generator.generate_response.return_value = (
+            "MCP is the Model Context Protocol."
+        )
         rag.tool_manager.get_last_sources.return_value = [
             {"text": "MCP Course - Lesson 1", "link": "https://example.com/l1"}
         ]
@@ -33,12 +36,16 @@ class TestRAGSystemQueryOrchestration:
         answer, sources = rag.query("What is MCP?")
 
         assert answer == "MCP is the Model Context Protocol."
-        assert sources == [{"text": "MCP Course - Lesson 1", "link": "https://example.com/l1"}]
+        assert sources == [
+            {"text": "MCP Course - Lesson 1", "link": "https://example.com/l1"}
+        ]
 
     def test_tool_definitions_and_tool_manager_are_passed_to_generator(self):
         rag = make_rag_system_with_mocks()
         rag.ai_generator.generate_response.return_value = "answer"
-        rag.tool_manager.get_tool_definitions.return_value = [{"name": "search_course_content"}]
+        rag.tool_manager.get_tool_definitions.return_value = [
+            {"name": "search_course_content"}
+        ]
         rag.tool_manager.get_last_sources.return_value = []
 
         rag.query("What is covered in lesson 2?")
@@ -95,7 +102,9 @@ class TestRAGSystemQueryOrchestration:
             rag.query("What is MCP?")
 
 
-@pytest.mark.skipif(not os.getenv("ANTHROPIC_API_KEY"), reason="requires a real ANTHROPIC_API_KEY")
+@pytest.mark.skipif(
+    not os.getenv("ANTHROPIC_API_KEY"), reason="requires a real ANTHROPIC_API_KEY"
+)
 class TestRAGSystemContentQueryLive:
     """End-to-end check against the real Anthropic API and the real, already-ingested
     ChromaDB store. Slower and costs API credits, so it's opt-in via the API key

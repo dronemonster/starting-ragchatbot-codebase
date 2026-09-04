@@ -1,9 +1,14 @@
 """Tests that AIGenerator correctly drives sequential tool-calling rounds."""
+
 from unittest.mock import MagicMock, patch
 
 from ai_generator import AIGenerator
 
-from .conftest import make_multi_tool_use_response, make_text_response, make_tool_use_response
+from .conftest import (
+    make_multi_tool_use_response,
+    make_text_response,
+    make_tool_use_response,
+)
 
 
 def make_generator():
@@ -17,7 +22,9 @@ def make_generator():
 class TestDirectResponseNoTools:
     def test_answers_directly_when_no_tool_use(self):
         generator, client = make_generator()
-        client.messages.create.return_value = make_text_response("Paris is the capital of France.")
+        client.messages.create.return_value = make_text_response(
+            "Paris is the capital of France."
+        )
 
         result = generator.generate_response("What is the capital of France?")
 
@@ -62,7 +69,9 @@ class TestSingleRoundToolExecution:
         assert result == "MCP stands for Model Context Protocol."
         assert client.messages.create.call_count == 2
 
-    def test_second_call_still_carries_tools_but_final_call_after_answer_would_not_happen(self):
+    def test_second_call_still_carries_tools_but_final_call_after_answer_would_not_happen(
+        self,
+    ):
         """After one round, if Claude answers directly, only 2 calls happen total
         and the round-2 call (the one that got the direct answer) still had
         tools attached - it just wasn't used."""
@@ -89,7 +98,9 @@ class TestSingleRoundToolExecution:
         tool_manager.execute_tool.return_value = "result text"
 
         client.messages.create.side_effect = [
-            make_tool_use_response("search_course_content", {"query": "q"}, tool_id="toolu_abc123"),
+            make_tool_use_response(
+                "search_course_content", {"query": "q"}, tool_id="toolu_abc123"
+            ),
             make_text_response("final answer"),
         ]
 
@@ -97,7 +108,9 @@ class TestSingleRoundToolExecution:
             "q", tools=[{"name": "search_course_content"}], tool_manager=tool_manager
         )
 
-        second_call_messages = client.messages.create.call_args_list[1].kwargs["messages"]
+        second_call_messages = client.messages.create.call_args_list[1].kwargs[
+            "messages"
+        ]
         tool_result_message = second_call_messages[-1]
         assert tool_result_message["role"] == "user"
         assert tool_result_message["content"][0]["tool_use_id"] == "toolu_abc123"
@@ -109,7 +122,9 @@ class TestSingleRoundToolExecution:
             "search_course_content", {"query": "q"}
         )
 
-        result = generator.generate_response("q", tools=[{"name": "search_course_content"}])
+        result = generator.generate_response(
+            "q", tools=[{"name": "search_course_content"}]
+        )
 
         # No tool_manager -> falls through to _retry_for_text since no text block exists.
         assert client.messages.create.call_count > 1
@@ -126,11 +141,17 @@ class TestSequentialToolRounds:
         ]
 
         client.messages.create.side_effect = [
-            make_tool_use_response("get_course_outline", {"course_name": "MCP"}, tool_id="toolu_1"),
             make_tool_use_response(
-                "search_course_content", {"query": "Building an MCP Client"}, tool_id="toolu_2"
+                "get_course_outline", {"course_name": "MCP"}, tool_id="toolu_1"
             ),
-            make_text_response("Course X's lesson 4 covers the same topic as Some Other Course."),
+            make_tool_use_response(
+                "search_course_content",
+                {"query": "Building an MCP Client"},
+                tool_id="toolu_2",
+            ),
+            make_text_response(
+                "Course X's lesson 4 covers the same topic as Some Other Course."
+            ),
         ]
 
         tools = [{"name": "get_course_outline"}, {"name": "search_course_content"}]
@@ -142,7 +163,9 @@ class TestSequentialToolRounds:
 
         assert client.messages.create.call_count == 3
         assert tool_manager.execute_tool.call_count == 2
-        tool_manager.execute_tool.assert_any_call("get_course_outline", course_name="MCP")
+        tool_manager.execute_tool.assert_any_call(
+            "get_course_outline", course_name="MCP"
+        )
         tool_manager.execute_tool.assert_any_call(
             "search_course_content", query="Building an MCP Client"
         )
@@ -163,7 +186,9 @@ class TestSequentialToolRounds:
         assert third_call_messages[4]["role"] == "user"
         assert third_call_messages[4]["content"][0]["tool_use_id"] == "toolu_2"
 
-        assert result == "Course X's lesson 4 covers the same topic as Some Other Course."
+        assert (
+            result == "Course X's lesson 4 covers the same topic as Some Other Course."
+        )
 
     def test_hard_cap_of_two_rounds_is_enforced(self):
         generator, client = make_generator()
@@ -171,8 +196,12 @@ class TestSequentialToolRounds:
         tool_manager.execute_tool.return_value = "some result"
 
         client.messages.create.side_effect = [
-            make_tool_use_response("search_course_content", {"query": "q1"}, tool_id="toolu_1"),
-            make_tool_use_response("search_course_content", {"query": "q2"}, tool_id="toolu_2"),
+            make_tool_use_response(
+                "search_course_content", {"query": "q1"}, tool_id="toolu_1"
+            ),
+            make_tool_use_response(
+                "search_course_content", {"query": "q2"}, tool_id="toolu_2"
+            ),
             make_text_response("final answer after cap"),
         ]
 
@@ -212,12 +241,20 @@ class TestSequentialToolRounds:
         # Two tool_use blocks in ONE response still only consumes one round.
         assert client.messages.create.call_count == 2
         assert tool_manager.execute_tool.call_count == 2
-        tool_manager.execute_tool.assert_any_call("search_course_content", query="topic A")
-        tool_manager.execute_tool.assert_any_call("search_course_content", query="topic B")
+        tool_manager.execute_tool.assert_any_call(
+            "search_course_content", query="topic A"
+        )
+        tool_manager.execute_tool.assert_any_call(
+            "search_course_content", query="topic B"
+        )
 
-        second_call_messages = client.messages.create.call_args_list[1].kwargs["messages"]
+        second_call_messages = client.messages.create.call_args_list[1].kwargs[
+            "messages"
+        ]
         tool_result_message = second_call_messages[-1]
-        results_by_id = {r["tool_use_id"]: r["content"] for r in tool_result_message["content"]}
+        results_by_id = {
+            r["tool_use_id"]: r["content"] for r in tool_result_message["content"]
+        }
         assert results_by_id == {"toolu_a": "result A", "toolu_b": "result B"}
         assert result == "Comparison of A and B."
 
@@ -229,7 +266,9 @@ class TestToolExecutionErrors:
         tool_manager.execute_tool.side_effect = RuntimeError("boom")
 
         client.messages.create.side_effect = [
-            make_tool_use_response("search_course_content", {"query": "q"}, tool_id="toolu_1"),
+            make_tool_use_response(
+                "search_course_content", {"query": "q"}, tool_id="toolu_1"
+            ),
             make_text_response("Sorry, I couldn't retrieve that."),
         ]
 
@@ -250,7 +289,10 @@ class TestToolExecutionErrors:
     def test_partial_failure_among_parallel_calls_still_returns_successful_result(self):
         generator, client = make_generator()
         tool_manager = MagicMock()
-        tool_manager.execute_tool.side_effect = ["good result", RuntimeError("bad tool")]
+        tool_manager.execute_tool.side_effect = [
+            "good result",
+            RuntimeError("bad tool"),
+        ]
 
         client.messages.create.side_effect = [
             make_multi_tool_use_response(
@@ -307,8 +349,12 @@ class TestEmptyResponseRetry:
         tool_manager.execute_tool.return_value = "some result"
 
         client.messages.create.side_effect = [
-            make_tool_use_response("search_course_content", {"query": "q1"}, tool_id="toolu_1"),
-            make_tool_use_response("search_course_content", {"query": "q2"}, tool_id="toolu_2"),
+            make_tool_use_response(
+                "search_course_content", {"query": "q1"}, tool_id="toolu_1"
+            ),
+            make_tool_use_response(
+                "search_course_content", {"query": "q2"}, tool_id="toolu_2"
+            ),
             make_text_response(""),
             make_text_response("Recovered."),
         ]

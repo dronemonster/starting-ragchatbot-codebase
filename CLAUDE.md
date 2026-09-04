@@ -18,9 +18,15 @@ uv run python <file.py>
 
 # Or use the helper script (Git Bash on Windows)
 ./run.sh
+
+# Format code with black
+./scripts/format.sh
+
+# Check formatting without modifying files (used in CI / pre-merge)
+./scripts/check.sh
 ```
 
-No test suite, linter, or formatter is currently configured in this repo.
+Code formatting is enforced with `black` (config in `pyproject.toml`, line length 88). Run `./scripts/format.sh` before committing; `./scripts/check.sh` fails if any file isn't formatted. No linter or test-coverage tooling beyond `pytest` (see `backend/tests/`) is currently configured.
 
 Environment: requires a `.env` file in the project root with `ANTHROPIC_API_KEY=...` (see `.env.example`).
 

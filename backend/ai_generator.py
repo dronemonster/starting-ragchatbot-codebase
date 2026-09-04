@@ -1,9 +1,10 @@
 import anthropic
 from typing import List, Optional, Dict, Any
 
+
 class AIGenerator:
     """Handles interactions with Anthropic's Claude API for generating responses"""
-    
+
     # Static system prompt to avoid rebuilding on each call
     SYSTEM_PROMPT = """ You are an AI assistant specialized in course materials and educational content with access to two tools for course information.
 
@@ -35,7 +36,7 @@ All responses must be:
 4. **Example-supported** - Include relevant examples when they aid understanding
 Provide only the direct answer to what was asked.
 """
-    
+
     # Maximum number of sequential tool-calling rounds Claude may use per query.
     # A round = one API call with tools attached that comes back as tool_use.
     MAX_TOOL_ROUNDS = 2
@@ -43,30 +44,30 @@ Provide only the direct answer to what was asked.
     def __init__(self, api_key: str, model: str):
         self.client = anthropic.Anthropic(api_key=api_key)
         self.model = model
-        
+
         # Pre-build base API parameters
-        self.base_params = {
-            "model": self.model,
-            "max_tokens": 2048
-        }
-    
-    def generate_response(self, query: str,
-                         conversation_history: Optional[str] = None,
-                         tools: Optional[List] = None,
-                         tool_manager=None) -> str:
+        self.base_params = {"model": self.model, "max_tokens": 2048}
+
+    def generate_response(
+        self,
+        query: str,
+        conversation_history: Optional[str] = None,
+        tools: Optional[List] = None,
+        tool_manager=None,
+    ) -> str:
         """
         Generate AI response with optional tool usage and conversation context.
-        
+
         Args:
             query: The user's question or request
             conversation_history: Previous messages for context
             tools: Available tools the AI can use
             tool_manager: Manager to execute tools
-            
+
         Returns:
             Generated response as string
         """
-        
+
         # Build system content efficiently - avoid string ops when possible
         system_content = (
             f"{self.SYSTEM_PROMPT}\n\nPrevious conversation:\n{conversation_history}"
@@ -81,7 +82,11 @@ Provide only the direct answer to what was asked.
 
         # No tools to execute (either none offered, or no manager to run them) -
         # a single call, exactly as before.
-        api_params = {**self.base_params, "messages": messages, "system": system_content}
+        api_params = {
+            **self.base_params,
+            "messages": messages,
+            "system": system_content,
+        }
         if tools:
             api_params["tools"] = tools
             api_params["tool_choice"] = {"type": "auto"}
@@ -92,8 +97,13 @@ Provide only the direct answer to what was asked.
             return text
         return self._retry_for_text(api_params)
 
-    def _run_tool_loop(self, messages: List[Dict[str, Any]], system_content: str,
-                        tools: List, tool_manager) -> str:
+    def _run_tool_loop(
+        self,
+        messages: List[Dict[str, Any]],
+        system_content: str,
+        tools: List,
+        tool_manager,
+    ) -> str:
         """
         Run up to MAX_TOOL_ROUNDS sequential tool-calling rounds, then force a
         final answer. Each round is a full API call with tools attached, so
@@ -111,7 +121,7 @@ Provide only the direct answer to what was asked.
                 "messages": messages,
                 "system": system_content,
                 "tools": tools,
-                "tool_choice": {"type": "auto"}
+                "tool_choice": {"type": "auto"},
             }
             response = self.client.messages.create(**api_params)
 
@@ -146,39 +156,50 @@ Provide only the direct answer to what was asked.
                 continue
 
             try:
-                result = tool_manager.execute_tool(content_block.name, **content_block.input)
-                tool_result = {"type": "tool_result", "tool_use_id": content_block.id, "content": result}
+                result = tool_manager.execute_tool(
+                    content_block.name, **content_block.input
+                )
+                tool_result = {
+                    "type": "tool_result",
+                    "tool_use_id": content_block.id,
+                    "content": result,
+                }
             except Exception as exc:
                 had_error = True
                 tool_result = {
                     "type": "tool_result",
                     "tool_use_id": content_block.id,
                     "content": f"Tool '{content_block.name}' failed: {exc}",
-                    "is_error": True
+                    "is_error": True,
                 }
 
             tool_results.append(tool_result)
 
         return tool_results, had_error
 
-    def _finalize_without_tools(self, messages: List[Dict[str, Any]], system_content: str,
-                                 had_error: bool) -> str:
+    def _finalize_without_tools(
+        self, messages: List[Dict[str, Any]], system_content: str, had_error: bool
+    ) -> str:
         """
         Make the mandatory closing API call with tools omitted, so Claude must
         answer using only what's already been gathered instead of requesting
         another tool call it can't make.
         """
         if had_error:
-            nudge = ("\n\nA tool call above returned an error. Do not attempt further tool calls. "
-                      "Answer using whatever information is available and plainly note what couldn't be retrieved.")
+            nudge = (
+                "\n\nA tool call above returned an error. Do not attempt further tool calls. "
+                "Answer using whatever information is available and plainly note what couldn't be retrieved."
+            )
         else:
-            nudge = ("\n\nYou have used the available tool-calling rounds. Do not call any more tools - "
-                      "answer the question now using the information already gathered.")
+            nudge = (
+                "\n\nYou have used the available tool-calling rounds. Do not call any more tools - "
+                "answer the question now using the information already gathered."
+            )
 
         final_params = {
             **self.base_params,
             "messages": messages,
-            "system": system_content + nudge
+            "system": system_content + nudge,
         }
 
         final_response = self.client.messages.create(**final_params)
