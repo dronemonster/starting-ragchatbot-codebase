@@ -1,3 +1,36 @@
+# Frontend Changes: Visible Header
+
+## Summary
+
+The app previously had no visible header (`header { display: none; }` in CSS) and the theme-toggle button floated as a `position: fixed` overlay in the top-right corner of the viewport. Replaced this with a real, visible header bar containing the app title/subtitle on the left and the theme toggle on the right.
+
+## Files changed
+
+- `frontend/index.html`
+- `frontend/style.css`
+
+## Details
+
+### 1. Header markup (`index.html`)
+
+- Wrapped the existing `<h1>Course Materials Assistant</h1>` and `<p class="subtitle">` in a new `.header-text` div inside `<header class="app-header">`.
+- Moved `#themeToggle` (previously a sibling of `.container`, fixed-positioned) into the header, after `.header-text`, so it now sits inline on the right side of the header row. No changes to the button's markup, `aria-*` attributes, or icons — and no changes to `script.js`, since it looks the button up by ID regardless of its position in the DOM.
+
+### 2. Header styling (`style.css`)
+
+- Removed `header { display: none; }`. `header` is now a flex row (`justify-content: space-between; align-items: center;`) with `background: var(--surface)` and `border-bottom: 1px solid var(--border-color)` — the same surface/border pairing already used by the sidebar, so it matches the existing design system.
+- Added `.header-text { display: flex; flex-direction: column; text-align: left; }` to group the title/subtitle on the left side of the row.
+- `header h1` keeps its pre-existing gradient text treatment (`linear-gradient(135deg, #667eea 0%, #764ba2 100%)` clipped to text) and larger font size (1.75rem) relative to `.subtitle` (0.95rem) — this styling already existed but was dormant while the header was hidden.
+- `.theme-toggle` no longer uses `position: fixed`/`top`/`right`/`z-index`; it now lays out as a normal flex child at the end of the header row (`flex-shrink: 0` keeps it from being squeezed on narrow screens). All other button styling (circular shape, colors, hover/active/focus-visible states, sun/moon icon cross-fade) is unchanged.
+- Updated the `@media (max-width: 768px)` rule for `.theme-toggle` to drop the now-meaningless `top`/`right` overrides, keeping only the smaller 38px size.
+
+## Verification
+
+Verified in-browser with Playwright MCP against the running dev server (`http://localhost:8000`):
+- Header renders with the gradient title left-aligned, subtitle beneath it, and the toggle button on the right — in both dark and light themes.
+- Clicking and keyboard-activating (Enter and Space, after Tab-focusing) the toggle both correctly flip `data-theme` and update the button's `aria-label`.
+- Resized to a 375px-wide mobile viewport: header wraps the title across two lines without overlapping the toggle button or overflowing.
+
 # Frontend Changes: Dark/Light Theme Toggle
 
 ## Summary
